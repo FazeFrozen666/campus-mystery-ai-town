@@ -9,6 +9,8 @@ export const EMBEDDING_DIMENSION: number = DEMO_EMBEDDING_DIMENSION;
 
 export function detectMismatchedLLMProvider() {
   switch (EMBEDDING_DIMENSION) {
+    case DEMO_EMBEDDING_DIMENSION:
+      break;
     case OPENAI_EMBEDDING_DIMENSION:
       if (!process.env.OPENAI_API_KEY) {
         throw new Error(
