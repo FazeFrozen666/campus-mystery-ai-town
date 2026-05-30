@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 import { internalAction } from '../_generated/server';
-import { WorldMap, serializedWorldMap } from './worldMap';
+import { serializedWorldMap } from './worldMap';
 import { rememberConversation } from '../agent/memory';
 import { GameId, agentId, conversationId, playerId } from './ids';
 import {
@@ -69,13 +69,20 @@ export const agentGenerateMessage = internalAction({
       default:
         assertNever(args.type);
     }
-    const text = await completionFn(
-      ctx,
-      args.worldId,
-      args.conversationId as GameId<'conversations'>,
-      args.playerId as GameId<'players'>,
-      args.otherPlayerId as GameId<'players'>,
-    );
+    let text: string;
+    try {
+      text = await completionFn(
+        ctx,
+        args.worldId,
+        args.conversationId as GameId<'conversations'>,
+        args.playerId as GameId<'players'>,
+        args.otherPlayerId as GameId<'players'>,
+      );
+    } catch (error) {
+      console.error('Agent message generation failed, using fallback reply', error);
+      text =
+        '我现在脑子有点乱，但这事肯定不简单。你先去营地、溪流、木箱和树桩附近多看看，再回来问我。';
+    }
 
     await ctx.runMutation(internal.aiTown.agent.agentSendMessage, {
       worldId: args.worldId,
@@ -101,78 +108,37 @@ export const agentDoSomething = internalAction({
   },
   handler: async (ctx, args) => {
     const { player, agent } = args;
-    const map = new WorldMap(args.map);
     const now = Date.now();
-    // Don't try to start a new conversation if we were just in one.
     const justLeftConversation =
       agent.lastConversation && now < agent.lastConversation + CONVERSATION_COOLDOWN;
-    // Don't try again if we recently tried to find someone to invite.
-    const recentlyAttemptedInvite =
-      agent.lastInviteAttempt && now < agent.lastInviteAttempt + CONVERSATION_COOLDOWN;
     const recentActivity = player.activity && now < player.activity.until + ACTIVITY_COOLDOWN;
-    // Decide whether to do an activity or wander somewhere.
-    if (!player.pathfinding) {
-      if (recentActivity || justLeftConversation) {
-        await sleep(Math.random() * 1000);
-        await ctx.runMutation(api.aiTown.main.sendInput, {
-          worldId: args.worldId,
-          name: 'finishDoSomething',
-          args: {
-            operationId: args.operationId,
-            agentId: agent.id,
-            destination: wanderDestination(map),
-          },
-        });
-        return;
-      } else {
-        // TODO: have LLM choose the activity & emoji
-        const activity = ACTIVITIES[Math.floor(Math.random() * ACTIVITIES.length)];
-        await sleep(Math.random() * 1000);
-        await ctx.runMutation(api.aiTown.main.sendInput, {
-          worldId: args.worldId,
-          name: 'finishDoSomething',
-          args: {
-            operationId: args.operationId,
-            agentId: agent.id,
-            activity: {
-              description: activity.description,
-              emoji: activity.emoji,
-              until: Date.now() + activity.duration,
-            },
-          },
-        });
-        return;
-      }
+    if (recentActivity || justLeftConversation) {
+      await sleep(Math.random() * 1000);
+      await ctx.runMutation(api.aiTown.main.sendInput, {
+        worldId: args.worldId,
+        name: 'finishDoSomething',
+        args: {
+          operationId: args.operationId,
+          agentId: agent.id,
+        },
+      });
+      return;
     }
-    const invitee =
-      justLeftConversation || recentlyAttemptedInvite
-        ? undefined
-        : await ctx.runQuery(internal.aiTown.agent.findConversationCandidate, {
-            now,
-            worldId: args.worldId,
-            player: args.player,
-            otherFreePlayers: args.otherFreePlayers,
-          });
 
-    // TODO: We hit a lot of OCC errors on sending inputs in this file. It's
-    // easy for them to get scheduled at the same time and line up in time.
+    const activity = ACTIVITIES[Math.floor(Math.random() * ACTIVITIES.length)];
     await sleep(Math.random() * 1000);
     await ctx.runMutation(api.aiTown.main.sendInput, {
       worldId: args.worldId,
       name: 'finishDoSomething',
       args: {
         operationId: args.operationId,
-        agentId: args.agent.id,
-        invitee,
+        agentId: agent.id,
+        activity: {
+          description: activity.description,
+          emoji: activity.emoji,
+          until: Date.now() + activity.duration,
+        },
       },
     });
   },
 });
-
-function wanderDestination(worldMap: WorldMap) {
-  // Wander someonewhere at least one tile away from the edge.
-  return {
-    x: 1 + Math.floor(Math.random() * (worldMap.width - 2)),
-    y: 1 + Math.floor(Math.random() * (worldMap.height - 2)),
-  };
-}

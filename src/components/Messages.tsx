@@ -25,6 +25,11 @@ export function Messages({
   scrollViewRef: React.RefObject<HTMLDivElement>;
 }) {
   const humanPlayerId = humanPlayer?.id;
+  const humanStatus =
+    conversation.kind === 'active' && humanPlayerId
+      ? conversation.doc.participants.get(humanPlayerId)?.status
+      : undefined;
+  const canType = humanStatus?.kind === 'participating';
   const descriptions = useQuery(api.world.gameDescriptions, { worldId });
   const messages = useQuery(api.messages.listMessages, {
     worldId,
@@ -60,13 +65,25 @@ export function Messages({
         behavior: 'smooth',
       });
     }
-  }, [messages, currentlyTyping]);
+  }, [messages, currentlyTyping, scrollViewRef]);
 
   if (messages === undefined) {
-    return null;
+    return (
+      <div className="chats text-base sm:text-sm">
+        <div className="bg-brown-200 text-black p-2">
+          <p className="text-brown-700 text-center">加载中...</p>
+        </div>
+      </div>
+    );
   }
-  if (messages.length === 0 && !inConversationWithMe) {
-    return null;
+  if (messages.length === 0 && !canType) {
+    return (
+      <div className="chats text-base sm:text-sm">
+        <div className="bg-brown-200 text-black p-2">
+          <p className="text-brown-700 text-center">等待对方发言...</p>
+        </div>
+      </div>
+    );
   }
   const messageNodes: { time: number; node: React.ReactNode }[] = messages.map((m) => {
     const node = (
@@ -99,7 +116,7 @@ export function Messages({
         membershipNodes.push({
           node: (
             <div key={`joined-${playerId}`} className="leading-tight mb-6">
-              <p className="text-brown-700 text-center">{playerName} joined the conversation.</p>
+              <p className="text-brown-700 text-center">{playerName} 加入了对话。</p>
             </div>
           ),
           time: started,
@@ -114,7 +131,7 @@ export function Messages({
       membershipNodes.push({
         node: (
           <div key={`joined-${playerId}`} className="leading-tight mb-6">
-            <p className="text-brown-700 text-center">{playerName} joined the conversation.</p>
+            <p className="text-brown-700 text-center">{playerName} 加入了对话。</p>
           </div>
         ),
         time: started,
@@ -123,11 +140,9 @@ export function Messages({
       membershipNodes.push({
         node: (
           <div key={`left-${playerId}`} className="leading-tight mb-6">
-            <p className="text-brown-700 text-center">{playerName} left the conversation.</p>
+            <p className="text-brown-700 text-center">{playerName} 离开了对话。</p>
           </div>
         ),
-        // Always sort all "left" messages after the last message.
-        // TODO: We can remove this once we want to support more than two participants per conversation.
         time: Math.max(lastMessageTs + 1, ended),
       });
     }
@@ -148,12 +163,12 @@ export function Messages({
             </div>
             <div className={clsx('bubble')}>
               <p className="bg-white -mx-3 -my-1">
-                <i>typing...</i>
+                <i>正在输入...</i>
               </p>
             </div>
           </div>
         )}
-        {humanPlayer && inConversationWithMe && conversation.kind === 'active' && (
+        {humanPlayer && canType && conversation.kind === 'active' && (
           <MessageInput
             worldId={worldId}
             engineId={engineId}

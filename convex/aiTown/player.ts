@@ -171,6 +171,7 @@ export class Player {
     name: string,
     character: string,
     description: string,
+    spawnLocation?: Point,
     tokenIdentifier?: string,
   ) {
     if (tokenIdentifier) {
@@ -188,7 +189,30 @@ export class Player {
       }
     }
     let position;
+    if (spawnLocation) {
+      const spawnCandidates = [];
+      for (let radius = 0; radius <= 5; radius++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          for (let dy = -radius; dy <= radius; dy++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) {
+              continue;
+            }
+            spawnCandidates.push({ x: spawnLocation.x + dx, y: spawnLocation.y + dy });
+          }
+        }
+      }
+      for (const candidate of spawnCandidates) {
+        if (blocked(game, now, candidate)) {
+          continue;
+        }
+        position = candidate;
+        break;
+      }
+    }
     for (let attempt = 0; attempt < 10; attempt++) {
+      if (position) {
+        break;
+      }
       const candidate = {
         x: Math.floor(Math.random() * game.worldMap.width),
         y: Math.floor(Math.random() * game.worldMap.height),
@@ -269,10 +293,19 @@ export const playerInputs = {
       name: v.string(),
       character: v.string(),
       description: v.string(),
+      spawnLocation: v.optional(point),
       tokenIdentifier: v.optional(v.string()),
     },
     handler: (game, now, args) => {
-      Player.join(game, now, args.name, args.character, args.description, args.tokenIdentifier);
+      Player.join(
+        game,
+        now,
+        args.name,
+        args.character,
+        args.description,
+        args.spawnLocation,
+        args.tokenIdentifier,
+      );
       return null;
     },
   }),

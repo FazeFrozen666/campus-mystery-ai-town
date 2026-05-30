@@ -25,6 +25,7 @@ export default PixiComponent('Viewport', {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
       events: app.renderer.events,
       passiveWheel: false,
+      disableOnContextMenu: true,
       ...viewportProps,
     });
     if (viewportRef) {
@@ -32,12 +33,12 @@ export default PixiComponent('Viewport', {
     }
     // Activate plugins
     viewport
-      .drag()
+      .drag({ mouseButtons: 'right' })
       .pinch({})
-      .wheel()
+      .wheel({ percent: 0.1, smooth: 3, center: null })
       .decelerate()
       .clamp({ direction: 'all', underflow: 'center' })
-      .setZoom(-10)
+      .setZoom(1)
       .clampZoom({
         minScale: (1.04 * props.screenWidth) / (props.worldWidth / 2),
         maxScale: 3.0,
@@ -45,12 +46,23 @@ export default PixiComponent('Viewport', {
     return viewport;
   },
   applyProps(viewport, oldProps: any, newProps: any) {
+    const sizeKeys = ['screenWidth', 'screenHeight', 'worldWidth', 'worldHeight'];
+    let needResize = false;
     Object.keys(newProps).forEach((p) => {
       if (p !== 'app' && p !== 'viewportRef' && p !== 'children' && oldProps[p] !== newProps[p]) {
         // @ts-expect-error Ignoring TypeScript here
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         viewport[p] = newProps[p];
+        if (sizeKeys.includes(p)) needResize = true;
       }
     });
+    if (needResize) {
+      viewport.resize(
+        newProps.screenWidth ?? viewport.screenWidth,
+        newProps.screenHeight ?? viewport.screenHeight,
+        newProps.worldWidth ?? viewport.worldWidth,
+        newProps.worldHeight ?? viewport.worldHeight,
+      );
+    }
   },
 });

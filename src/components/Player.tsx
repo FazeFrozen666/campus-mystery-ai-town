@@ -21,6 +21,7 @@ export const Player = ({
   player,
   onClick,
   historicalTime,
+  locationOverride,
 }: {
   game: ServerGame;
   isViewer: boolean;
@@ -28,6 +29,7 @@ export const Player = ({
 
   onClick: SelectElement;
   historicalTime?: number;
+  locationOverride?: Location;
 }) => {
   const playerCharacter = game.playerDescriptions.get(player.id)?.character;
   if (!playerCharacter) {
@@ -50,7 +52,8 @@ export const Player = ({
     return null;
   }
 
-  if (!historicalLocation) {
+  const displayLocation = locationOverride ?? historicalLocation;
+  if (!displayLocation) {
     return null;
   }
 
@@ -62,19 +65,20 @@ export const Player = ({
     !![...game.world.agents.values()].find(
       (a) => a.playerId === player.id && !!a.inProgressOperation,
     );
+  const isNpc = !player.human;
   const tileDim = game.worldMap.tileDim;
-  const historicalFacing = { dx: historicalLocation.dx, dy: historicalLocation.dy };
+  const historicalFacing = { dx: displayLocation.dx, dy: displayLocation.dy };
   return (
     <>
       <Character
-        x={historicalLocation.x * tileDim + tileDim / 2}
-        y={historicalLocation.y * tileDim + tileDim / 2}
+        x={displayLocation.x * tileDim + tileDim / 2}
+        y={displayLocation.y * tileDim + tileDim / 2}
         orientation={orientationDegrees(historicalFacing)}
-        isMoving={historicalLocation.speed > 0}
-        isThinking={isThinking}
+        isMoving={!isNpc && displayLocation.speed > 0}
+        isThinking={!isNpc && isThinking}
         isSpeaking={isSpeaking}
         emoji={
-          player.activity && player.activity.until > (historicalTime ?? Date.now())
+          !isNpc && player.activity && player.activity.until > (historicalTime ?? Date.now())
             ? player.activity?.emoji
             : undefined
         }

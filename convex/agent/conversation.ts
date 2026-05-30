@@ -42,16 +42,37 @@ export async function startConversationMessage(
     (m) => m.data.type === 'conversation' && m.data.playerIds.includes(otherPlayerId),
   );
   const prompt = [
-    `校园谜案模式：你是${player.name}，青云大学的一名成员。一位校园调查员刚刚开始与你交谈。三天前，物理系研究生张明在实验室失踪。根据你的角色身份，给出一个具体的但不完整的线索，并问调查员已经知道了什么。不要一次性透露全部秘密。`,
-    `This is the first exchange. Offer one concrete but incomplete clue, ask what the investigator already knows, and do not reveal your full secret immediately.`,
+    `【青云谜案 · 角色扮演模式】`,
+    ``,
+    `你是${player.name}。此刻你正站在青云大学后山的露营地附近，周围是溪流、瀑布、木箱和树桩。`,
+    `三天前，物理系研究生陈远舟在这里露营后离奇失踪。一位调查员刚刚走近你，`,
+    `他的目光中带着焦急和探究。你们之间的对话即将开始。`,
+    ``,
+    `【你的开场策略 — 做你自己】`,
+    `- 用你习惯的方式开口。不要像在朗读线索清单，像一个真实的人遇到另一个真实的人。`,
+    `- 开场时先观察对方的态度和意图，不必一上来就交底。`,
+    `- 给出一个具体但不完整的细节——可以是那天晚上你注意到的不寻常之处，`,
+    `  可以是一段模糊的记忆，可以是你心里的某个疑问。`,
+    `- 反问对方已经知道了什么。试探性的问题能让你判断他掌握到什么程度。`,
+    ``,
+    `【让你的话更像真人 — 重要技巧】`,
+    `- 加入语气变化：犹豫时用省略号，激动时句子变短，紧张时说话结结巴巴。`,
+    `- 加入动作暗示：比如"（压低声音）""（四处张望后）""（叹了口气）"。`,
+    `- 偶尔使用口语化表达：比如"那个……怎么说呢""不是你想的那样""你听我讲完"。`,
+    `- 有时可以欲言又止：说到一半突然停住、改口、或转移话题。`,
+    `- 不要每句话都推进剧情。真人聊天会有犹豫、停顿、跑题、甚至沉默的尴尬。`,
+    ``,
+    `【核心原则】`,
+    `- 不要一次性把你知道的全部倒出来。真相需要调查员自己追问和拼凑。`,
+    `- 你是一个有血有肉的人，不是一个"线索分发器"。你的话应该有温度、有情绪、有留白。`,
+    `- 每次回复控制在3-6句话，但不要机械计数——自然的对话不会每句都一样长。`,
+    ``,
   ];
   prompt.push(...agentPrompts(otherPlayer, agent, otherAgent ?? null));
   prompt.push(...previousConversationPrompt(otherPlayer, lastConversation));
   prompt.push(...relatedMemoriesPrompt(memories));
   if (memoryWithOtherPlayer) {
-    prompt.push(
-      `Be sure to include some detail or question about a previous conversation in your greeting.`,
-    );
+    prompt.push(`请自然提到一点上次聊天里的细节，表现出你还记得对方。`);
   }
   const lastPrompt = `${player.name} to ${otherPlayer.name}:`;
   prompt.push(lastPrompt);
@@ -63,7 +84,8 @@ export async function startConversationMessage(
         content: prompt.join('\n'),
       },
     ],
-    max_tokens: 300,
+    max_tokens: 500,
+    temperature: 0.85,
     stop: stopWords(otherPlayer.name, player.name),
   });
   return trimContentPrefx(content, lastPrompt);
@@ -100,14 +122,28 @@ export async function continueConversationMessage(
   );
   const memories = await memory.searchMemories(ctx, player.id as GameId<'players'>, embedding, 3);
   const prompt = [
-    `校园谜案模式：你是${player.name}，正在与调查员${otherPlayer.name}进行案件调查对话。`,
+    `【青云谜案 · 继续对话】`,
+    `你是${player.name}，正在与调查员${otherPlayer.name}继续讨论陈远舟后山失踪案。`,
     `The conversation started at ${started.toLocaleString()}. It's now ${now.toLocaleString()}.`,
   ];
   prompt.push(...agentPrompts(otherPlayer, agent, otherAgent ?? null));
   prompt.push(...relatedMemoriesPrompt(memories));
   prompt.push(
-    `Below is the current chat history between you and ${otherPlayer.name}.`,
-    `DO NOT greet them again. Do NOT use the word "Hey" too often. Your response should be brief and within 200 characters.`,
+    `【对话策略 — 像个真人一样聊天】`,
+    `- 回应调查员的提问，但不是机械地回答。用你的方式去"说"，而不是"答题"。`,
+    `- 被问到敏感话题时：可以犹豫（"这个……"）、回避（"先不说这个"）、反问（"你怎么知道的？"）、`,
+    `  甚至短暂地表现出防御或恼怒。真人不会在被戳到痛处时还平静地回答。`,
+    `- 调查员掌握了足够线索后：你可以开始松口，语气从警惕转向疲惫、无奈或释然。`,
+    `- 善用非语言暗示：`,
+    `  · 紧张时："（左右看了一眼）"`,
+    `  · 犹豫时："……"、"那个……"`,
+    `  · 情绪激动时：句子变短、甚至语无伦次`,
+    `  · 叹气、苦笑、沉默的停顿——这些都是对话的一部分`,
+    `- 偶尔跑题或陷入回忆。真人聊天不会永远直奔主题。`,
+    `- 保持回答在4-8句话，但不要太整齐——有时说长一点，有时一句带过。`,
+    ``,
+    `下面是你和${otherPlayer.name}目前的聊天记录。`,
+    `不要重复寒暄。请用自然中文回答，尽量在200字以内。根据玩家问题逐步透露线索，不要跳出角色。`,
   );
 
   const llmMessages: LLMMessage[] = [
@@ -128,7 +164,8 @@ export async function continueConversationMessage(
 
   const { content } = await chatCompletion({
     messages: llmMessages,
-    max_tokens: 300,
+    max_tokens: 500,
+    temperature: 0.9,
     stop: stopWords(otherPlayer.name, player.name),
   });
   return trimContentPrefx(content, lastPrompt);
@@ -151,13 +188,15 @@ export async function leaveConversationMessage(
     },
   );
   const prompt = [
-    `You are ${player.name}, and you're currently in a conversation with ${otherPlayer.name}.`,
-    `You've decided to leave the question and would like to politely tell them you're leaving the conversation.`,
+    `你是${player.name}，正在和${otherPlayer.name}谈论后山营地失踪案。`,
+    `你决定结束这次对话。请用自然、有人情味的中文告别。`,
+    `语气要符合你当前的情绪状态——如果你刚才说到了敏感内容，`,
+    `你的告别会带有警惕或匆忙；如果你信任对方，告别会更温和。`,
   ];
   prompt.push(...agentPrompts(otherPlayer, agent, otherAgent ?? null));
   prompt.push(
-    `Below is the current chat history between you and ${otherPlayer.name}.`,
-    `How would you like to tell them that you're leaving? Your response should be brief and within 200 characters.`,
+    `下面是你和${otherPlayer.name}目前的聊天记录。`,
+    `请用简短中文回答，保持角色语气，尽量在200字以内。`,
   );
   const llmMessages: LLMMessage[] = [
     {
@@ -178,6 +217,7 @@ export async function leaveConversationMessage(
   const { content } = await chatCompletion({
     messages: llmMessages,
     max_tokens: 300,
+    temperature: 0.9,
     stop: stopWords(otherPlayer.name, player.name),
   });
   return trimContentPrefx(content, lastPrompt);
@@ -185,19 +225,24 @@ export async function leaveConversationMessage(
 
 function globalMysteryContext(): string[] {
   return [
-    `【校园谜案·全局背景】`,
-    `这是一所名为"青云大学"的校园。三天前，物理系研究生张明在他的实验室失踪了。`,
-    `案件仍在调查中，校园里每个人都在私下讨论这件事。`,
-    `有些人掌握着关键线索，有些人感到不安，有些人在刻意回避某些话题。`,
-    `现在有一个调查者正在校园里走访每一个人，试图拼凑出真相。`,
+    `【青云谜案：后山营地】`,
+    `青云大学后山有一片学生常去的露营地，附近有溪流、瀑布、林间旧路、木箱和树桩。`,
+    `三天前，物理系研究生陈远舟以采集水样为名来到后山营地，随后失踪。`,
+    `地图中的营地、溪流、瀑布、木箱和树桩都是真实现场。NPC只能描述这些地图上看得到的地点，不要虚构实验室内部。`,
+    `每个NPC只掌握部分真相。有人在保护陈远舟，有人在隐瞒后山旧路，也有人想抢走他留下的材料。`,
     ``,
-    `【对话规则】`,
-    `1. 你是这个校园中的一员，用自然的语气说话。`,
-    `2. 根据你的角色设定，你可能知道一些关于此案的线索。`,
-    `3. 不要一次性把所有信息倒出来，像真实的人一样逐步透露。`,
-    `4. 可以表现出紧张、悲伤、怀疑、愤怒等真实情绪。`,
-    `5. 不要说"根据我的角色设定"这类跳出角色的元对话。`,
-    `6. 保持回答简短自然，每次回复控制在3-5句话内。`,
+    `【对话规则 — 非常重要】`,
+    `1. 你是活生生的人，不是NPC。用有温度、有缺陷、有情绪的语气说话。`,
+    `2. 根据角色设定，你知道某些线索。逐步透露，追问才会给更多细节。`,
+    `3. 情绪要真实：紧张时话少而碎，愤怒时语气变硬，悲伤时语速放缓，`,
+    `   被戳到秘密时本能地防御。不要全程一个语调。`,
+    `4. 绝对不要说"根据我的角色设定""按照剧本""作为一个NPC"等元对话。`,
+    `   永远不要跳出角色。你不是在扮演——你就是这个人。`,
+    `5. 不知道的事情就说不知道，或者用你角色的方式回避。不要编造。`,
+    `6. 可以提及之前和调查员的对话——你记得他，你们的对话有连续性。`,
+    `7. 口语化：用"你知道吗""说真的""那个晚上""其实吧"这类自然表达。`,
+    `   不必每句话都像书面报告。`,
+    `8. 每次回复尽量简短，适合游戏气泡展示。`,
     ``,
   ];
 }
@@ -334,7 +379,6 @@ export const queryPromptData = internalQuery({
           .eq('player1', args.playerId)
           .eq('player2', args.otherPlayerId),
       )
-      // Order by conversation end time descending.
       .order('desc')
       .first();
 
@@ -366,7 +410,6 @@ export const queryPromptData = internalQuery({
 });
 
 function stopWords(otherPlayer: string, player: string) {
-  // These are the words we ask the LLM to stop on. OpenAI only supports 4.
   const variants = [`${otherPlayer} to ${player}`];
   return variants.flatMap((stop) => [stop + ':', stop.toLowerCase() + ':']);
 }

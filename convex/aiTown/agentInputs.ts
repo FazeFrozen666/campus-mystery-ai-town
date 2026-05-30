@@ -9,6 +9,14 @@ import { Descriptions } from '../../data/characters';
 import { AgentDescription } from './agentDescription';
 import { Agent } from './agent';
 
+const FIXED_AGENT_POSITIONS = [
+  { x: 13, y: 17 },
+  { x: 16, y: 17 },
+  { x: 13, y: 20 },
+  { x: 16, y: 20 },
+  { x: 18, y: 18 },
+];
+
 export const agentInputs = {
   finishRememberConversation: inputHandler({
     args: {
@@ -128,6 +136,7 @@ export const agentInputs = {
         description.name,
         description.character,
         description.identity,
+        FIXED_AGENT_POSITIONS[args.descriptionIndex % FIXED_AGENT_POSITIONS.length],
       );
       const agentId = game.allocId('agents');
       game.world.agents.set(

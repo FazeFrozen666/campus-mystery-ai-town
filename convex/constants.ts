@@ -41,8 +41,8 @@ export const AWKWARD_CONVERSATION_TIMEOUT = 60_000; // more time locally
 export const MAX_CONVERSATION_DURATION = 10 * 60_000; // more time locally
 // export const MAX_CONVERSATION_DURATION = 2 * 60_000;
 
-// Leave a conversation if it has more than 8 messages;
-export const MAX_CONVERSATION_MESSAGES = 8;
+// Leave a conversation if it has more than 16 messages;
+export const MAX_CONVERSATION_MESSAGES = 16;
 
 // Wait for 1s after sending an input to the engine. We can remove this
 // once we can await on an input being processed.
@@ -65,11 +65,11 @@ export const DELETE_BATCH_SIZE = 64;
 export const HUMAN_IDLE_TOO_LONG = 5 * 60 * 1000;
 
 export const ACTIVITIES = [
-  { description: '正在检查线索...', emoji: '🔍', duration: 60_000 },
-  { description: '整理线索笔记...', emoji: '📝', duration: 60_000 },
-  { description: '在案发地点附近观察...', emoji: '👀', duration: 60_000 },
-  { description: '与其他目击者低声交谈...', emoji: '💬', duration: 60_000 },
-  { description: '在实验楼周围巡逻...', emoji: '🚶', duration: 60_000 },
+  { description: '检查营地木箱', emoji: 'LOG', duration: 60_000 },
+  { description: '整理后山调查笔记', emoji: 'NOTE', duration: 60_000 },
+  { description: '在溪流边寻找脚印', emoji: 'STEP', duration: 60_000 },
+  { description: '查看瀑布岩壁', emoji: 'KEY', duration: 60_000 },
+  { description: '守着一个不能公开的秘密', emoji: 'HIDE', duration: 60_000 },
 ];
 
 export const ENGINE_ACTION_DURATION = 30000;

@@ -1,6 +1,6 @@
 import { BaseTexture, ISpritesheetData, Spritesheet } from 'pixi.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { AnimatedSprite, Container, Graphics, Text } from '@pixi/react';
+import { AnimatedSprite, Container, Graphics } from '@pixi/react';
 import * as PIXI from 'pixi.js';
 
 export const Character = ({
@@ -10,9 +10,6 @@ export const Character = ({
   y,
   orientation,
   isMoving = false,
-  isThinking = false,
-  isSpeaking = false,
-  emoji = '',
   isViewer = false,
   speed = 0.1,
   onClick,
@@ -85,14 +82,6 @@ export const Character = ({
 
   return (
     <Container x={x} y={y} interactive={true} pointerdown={onClick} cursor="pointer">
-      {isThinking && (
-        // TODO: We'll eventually have separate assets for thinking and speech animations.
-        <Text x={-20} y={-10} scale={{ x: -0.8, y: 0.8 }} text={'💭'} anchor={{ x: 0.5, y: 0.5 }} />
-      )}
-      {isSpeaking && (
-        // TODO: We'll eventually have separate assets for thinking and speech animations.
-        <Text x={18} y={-10} scale={0.8} text={'💬'} anchor={{ x: 0.5, y: 0.5 }} />
-      )}
       {isViewer && <ViewerIndicator />}
       <AnimatedSprite
         ref={ref}
@@ -101,9 +90,6 @@ export const Character = ({
         animationSpeed={speed}
         anchor={{ x: 0.5, y: 0.5 }}
       />
-      {emoji && (
-        <Text x={0} y={-24} scale={{ x: -0.8, y: 0.8 }} text={emoji} anchor={{ x: 0.5, y: 0.5 }} />
-      )}
     </Container>
   );
 };

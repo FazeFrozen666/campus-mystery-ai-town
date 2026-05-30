@@ -1,55 +1,42 @@
 import { ConvexError, v } from 'convex/values';
-import { internalMutation, mutation, query } from './_generated/server';
+import { action, internalMutation, mutation, query } from './_generated/server';
+import type { MutationCtx } from './_generated/server';
 import { characters } from '../data/characters';
-import { insertInput } from './aiTown/insertInput';
 import {
   DEFAULT_NAME,
   ENGINE_ACTION_DURATION,
   IDLE_WORLD_TIMEOUT,
   WORLD_HEARTBEAT_INTERVAL,
 } from './constants';
-import { playerId } from './aiTown/ids';
+import { allocGameId, playerId } from './aiTown/ids';
 import { kickEngine, startEngine, stopEngine } from './aiTown/main';
 import { engineInsertInput } from './engine/abstractGame';
 
 export const defaultWorldStatus = query({
   handler: async (ctx) => {
-    const worldStatus = await ctx.db
+    return await ctx.db
       .query('worldStatus')
       .filter((q) => q.eq(q.field('isDefault'), true))
       .first();
-    return worldStatus;
   },
 });
 
 export const heartbeatWorld = mutation({
-  args: {
-    worldId: v.id('worlds'),
-  },
+  args: { worldId: v.id('worlds') },
   handler: async (ctx, args) => {
     const worldStatus = await ctx.db
       .query('worldStatus')
       .withIndex('worldId', (q) => q.eq('worldId', args.worldId))
       .first();
-    if (!worldStatus) {
-      throw new Error(`Invalid world ID: ${args.worldId}`);
-    }
-    const now = Date.now();
+    if (!worldStatus) throw new Error(`Invalid world ID: ${args.worldId}`);
 
-    // Skip the update (and then potentially make the transaction readonly)
-    // if it's been viewed sufficiently recently..
+    const now = Date.now();
     if (!worldStatus.lastViewed || worldStatus.lastViewed < now - WORLD_HEARTBEAT_INTERVAL / 2) {
       await ctx.db.patch(worldStatus._id, {
         lastViewed: Math.max(worldStatus.lastViewed ?? now, now),
       });
     }
-
-    // Restart inactive worlds, but leave worlds explicitly stopped by the developer alone.
-    if (worldStatus.status === 'stoppedByDeveloper') {
-      console.debug(`World ${worldStatus._id} is stopped by developer, not restarting.`);
-    }
     if (worldStatus.status === 'inactive') {
-      console.log(`Restarting inactive world ${worldStatus._id}...`);
       await ctx.db.patch(worldStatus._id, { status: 'running' });
       await startEngine(ctx, worldStatus.worldId);
     }
@@ -61,10 +48,7 @@ export const stopInactiveWorlds = internalMutation({
     const cutoff = Date.now() - IDLE_WORLD_TIMEOUT;
     const worlds = await ctx.db.query('worldStatus').collect();
     for (const worldStatus of worlds) {
-      if (cutoff < worldStatus.lastViewed || worldStatus.status !== 'running') {
-        continue;
-      }
-      console.log(`Stopping inactive world ${worldStatus._id}`);
+      if (cutoff < worldStatus.lastViewed || worldStatus.status !== 'running') continue;
       await ctx.db.patch(worldStatus._id, { status: 'inactive' });
       await stopEngine(ctx, worldStatus.worldId);
     }
@@ -73,21 +57,13 @@ export const stopInactiveWorlds = internalMutation({
 
 export const restartDeadWorlds = internalMutation({
   handler: async (ctx) => {
-    const now = Date.now();
-
-    // Restart an engine if it hasn't run for 2x its action duration.
-    const engineTimeout = now - ENGINE_ACTION_DURATION * 2;
+    const engineTimeout = Date.now() - ENGINE_ACTION_DURATION * 2;
     const worlds = await ctx.db.query('worldStatus').collect();
     for (const worldStatus of worlds) {
-      if (worldStatus.status !== 'running') {
-        continue;
-      }
+      if (worldStatus.status !== 'running') continue;
       const engine = await ctx.db.get(worldStatus.engineId);
-      if (!engine) {
-        throw new Error(`Invalid engine ID: ${worldStatus.engineId}`);
-      }
+      if (!engine) throw new Error(`Invalid engine ID: ${worldStatus.engineId}`);
       if (engine.currentTime && engine.currentTime < engineTimeout) {
-        console.warn(`Restarting dead engine ${engine._id}...`);
         await kickEngine(ctx, worldStatus.worldId);
       }
     }
@@ -95,74 +71,97 @@ export const restartDeadWorlds = internalMutation({
 });
 
 export const userStatus = query({
-  args: {
-    worldId: v.id('worlds'),
-  },
-  handler: async (ctx, args) => {
-    // const identity = await ctx.auth.getUserIdentity();
-    // if (!identity) {
-    //   return null;
-    // }
-    // return identity.tokenIdentifier;
-    return DEFAULT_NAME;
-  },
+  args: { worldId: v.id('worlds') },
+  handler: async () => DEFAULT_NAME,
 });
 
 export const joinWorld = mutation({
-  args: {
-    worldId: v.id('worlds'),
-  },
+  args: { worldId: v.id('worlds') },
   handler: async (ctx, args) => {
-    // const identity = await ctx.auth.getUserIdentity();
-    // if (!identity) {
-    //   throw new ConvexError(`Not logged in`);
-    // }
-    // const name =
-    //   identity.givenName || identity.nickname || (identity.email && identity.email.split('@')[0]);
-    const name = DEFAULT_NAME;
-
-    // if (!name) {
-    //   throw new ConvexError(`Missing name on ${JSON.stringify(identity)}`);
-    // }
     const world = await ctx.db.get(args.worldId);
-    if (!world) {
-      throw new ConvexError(`Invalid world ID: ${args.worldId}`);
+    if (!world) throw new ConvexError(`Invalid world ID: ${args.worldId}`);
+
+    await removeHumanPlayer(ctx, world);
+    const freshWorld = (await ctx.db.get(args.worldId)) ?? world;
+    const investigatorCharacter = characters.find((c) => c.name === 'f5') ?? characters[0];
+    const newPlayerId = allocGameId('players', freshWorld.nextId);
+
+    const joinPatch: any = {
+      nextId: freshWorld.nextId + 1,
+      conversations: [],
+      players: [
+        ...freshWorld.players,
+        {
+          id: newPlayerId,
+          human: DEFAULT_NAME,
+          lastInput: Date.now(),
+          position: { x: 14, y: 18 },
+          facing: { dx: 0, dy: 1 },
+          speed: 0,
+        },
+      ],
+    };
+    if (freshWorld.historicalLocations) {
+      joinPatch.historicalLocations = freshWorld.historicalLocations.filter(
+        (location) => location.playerId !== newPlayerId,
+      );
     }
-    // const { tokenIdentifier } = identity;
-    return await insertInput(ctx, world._id, 'join', {
-      name,
-      character: characters[Math.floor(Math.random() * characters.length)].name,
-      description: `${DEFAULT_NAME} is a human player`,
-      // description: `${identity.givenName} is a human player`,
-      tokenIdentifier: DEFAULT_NAME,
+    await ctx.db.patch(freshWorld._id, joinPatch);
+
+    await ctx.db.insert('playerDescriptions', {
+      worldId: freshWorld._id,
+      playerId: newPlayerId,
+      name: DEFAULT_NAME,
+      character: investigatorCharacter.name,
+      description:
+        'Campus investigator looking into Chen Yuanzhou disappearance near the back-hill camp.',
     });
+
+    return newPlayerId;
   },
 });
 
 export const leaveWorld = mutation({
-  args: {
-    worldId: v.id('worlds'),
-  },
+  args: { worldId: v.id('worlds') },
   handler: async (ctx, args) => {
-    // const identity = await ctx.auth.getUserIdentity();
-    // if (!identity) {
-    //   throw new Error(`Not logged in`);
-    // }
-    // const { tokenIdentifier } = identity;
     const world = await ctx.db.get(args.worldId);
-    if (!world) {
-      throw new Error(`Invalid world ID: ${args.worldId}`);
-    }
-    // const existingPlayer = world.players.find((p) => p.human === tokenIdentifier);
-    const existingPlayer = world.players.find((p) => p.human === DEFAULT_NAME);
-    if (!existingPlayer) {
-      return;
-    }
-    await insertInput(ctx, world._id, 'leave', {
-      playerId: existingPlayer.id,
-    });
+    if (!world) throw new Error(`Invalid world ID: ${args.worldId}`);
+    await removeHumanPlayer(ctx, world);
+    return null;
   },
 });
+
+async function removeHumanPlayer(ctx: MutationCtx, world: any) {
+  const humanPlayerIds = world.players
+    .filter((player: any) => player.human === DEFAULT_NAME)
+    .map((player: any) => player.id);
+  if (humanPlayerIds.length === 0) return;
+
+  const leavePatch: any = {
+    players: world.players.filter((player: any) => !humanPlayerIds.includes(player.id)),
+    conversations: world.conversations.filter((conversation: any) =>
+      conversation.participants.every(
+        (participant: any) => !humanPlayerIds.includes(participant.playerId),
+      ),
+    ),
+  };
+  if (world.historicalLocations) {
+    leavePatch.historicalLocations = world.historicalLocations.filter(
+      (location: any) => !humanPlayerIds.includes(location.playerId),
+    );
+  }
+  await ctx.db.patch(world._id, leavePatch);
+
+  for (const id of humanPlayerIds) {
+    const descriptions = await ctx.db
+      .query('playerDescriptions')
+      .withIndex('worldId', (q) => q.eq('worldId', world._id).eq('playerId', id))
+      .collect();
+    for (const description of descriptions) {
+      await ctx.db.delete(description._id);
+    }
+  }
+}
 
 export const sendWorldInput = mutation({
   args: {
@@ -171,42 +170,30 @@ export const sendWorldInput = mutation({
     args: v.any(),
   },
   handler: async (ctx, args) => {
-    // const identity = await ctx.auth.getUserIdentity();
-    // if (!identity) {
-    //   throw new Error(`Not logged in`);
-    // }
     return await engineInsertInput(ctx, args.engineId, args.name as any, args.args);
   },
 });
 
 export const worldState = query({
-  args: {
-    worldId: v.id('worlds'),
-  },
+  args: { worldId: v.id('worlds') },
   handler: async (ctx, args) => {
     const world = await ctx.db.get(args.worldId);
-    if (!world) {
-      throw new Error(`Invalid world ID: ${args.worldId}`);
-    }
+    if (!world) throw new Error(`Invalid world ID: ${args.worldId}`);
+
     const worldStatus = await ctx.db
       .query('worldStatus')
       .withIndex('worldId', (q) => q.eq('worldId', world._id))
       .unique();
-    if (!worldStatus) {
-      throw new Error(`Invalid world status ID: ${world._id}`);
-    }
+    if (!worldStatus) throw new Error(`Invalid world status ID: ${world._id}`);
+
     const engine = await ctx.db.get(worldStatus.engineId);
-    if (!engine) {
-      throw new Error(`Invalid engine ID: ${worldStatus.engineId}`);
-    }
+    if (!engine) throw new Error(`Invalid engine ID: ${worldStatus.engineId}`);
     return { world, engine };
   },
 });
 
 export const gameDescriptions = query({
-  args: {
-    worldId: v.id('worlds'),
-  },
+  args: { worldId: v.id('worlds') },
   handler: async (ctx, args) => {
     const playerDescriptions = await ctx.db
       .query('playerDescriptions')
@@ -220,9 +207,7 @@ export const gameDescriptions = query({
       .query('maps')
       .withIndex('worldId', (q) => q.eq('worldId', args.worldId))
       .first();
-    if (!worldMap) {
-      throw new Error(`No map for world: ${args.worldId}`);
-    }
+    if (!worldMap) throw new Error(`No map for world: ${args.worldId}`);
     return { worldMap, playerDescriptions, agentDescriptions };
   },
 });
@@ -232,26 +217,27 @@ export const previousConversation = query({
     worldId: v.id('worlds'),
     playerId,
   },
-  handler: async (ctx, args) => {
-    // Walk the player's history in descending order, looking for a nonempty
-    // conversation.
-    const members = ctx.db
-      .query('participatedTogether')
-      .withIndex('playerHistory', (q) => q.eq('worldId', args.worldId).eq('player1', args.playerId))
-      .order('desc');
+  handler: async () => null,
+});
 
-    for await (const member of members) {
-      const conversation = await ctx.db
-        .query('archivedConversations')
-        .withIndex('worldId', (q) => q.eq('worldId', args.worldId).eq('id', member.conversationId))
-        .unique();
-      if (!conversation) {
-        throw new Error(`Invalid conversation ID: ${member.conversationId}`);
-      }
-      if (conversation.numMessages > 0) {
-        return conversation;
-      }
-    }
-    return null;
+export const generateAccusationEnding = action({
+  args: {
+    worldId: v.id('worlds'),
+    accusedSuspectId: v.string(),
+  },
+  handler: async (_ctx, args) => {
+    const suspectNames: Record<string, string> = {
+      lin: '林教授',
+      chen: '陈同学',
+      zhou: '周学姐',
+      wang: '王保安',
+      gray: '灰衣人',
+    };
+    const suspectName = suspectNames[args.accusedSuspectId] ?? '未知人物';
+    const isCorrect = args.accusedSuspectId === 'gray';
+    const ending = isCorrect
+      ? '灰衣人是第一阶段最关键的突破口。他不是案件终点，而是陈远舟留下证据的接应者。录音笔、旧路线图、溪流脚印和瀑布方向终于串成一条线：陈远舟发现的东西，被校外的人盯上了。第一阶段调查完成，但更深的真相还藏在瀑布后的旧路里。'
+      : `${suspectName}身上确实有疑点，但现在指认还太早。现有证据会把你重新带回灰衣人、溪流脚印和旧路线图。回到地图继续收集线索，再重新提交推理。`;
+    return { ending, isCorrect, suspectName, fallback: true };
   },
 });

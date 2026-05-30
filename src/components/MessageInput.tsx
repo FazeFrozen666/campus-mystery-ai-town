@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useMutation, useQuery } from 'convex/react';
-import { KeyboardEvent, useRef, useState } from 'react';
+import { KeyboardEvent, useRef } from 'react';
 import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
 import { useSendInput } from '../hooks/sendInput';
@@ -30,15 +30,12 @@ export function MessageInput({
   const onKeyDown = async (e: KeyboardEvent) => {
     e.stopPropagation();
 
-    // Set the typing indicator if we're not submitting.
     if (e.key !== 'Enter') {
-      console.log(inflightUuid.current);
       if (currentlyTyping || inflightUuid.current !== undefined) {
         return;
       }
       inflightUuid.current = crypto.randomUUID();
       try {
-        // Don't show a toast on error.
         await startTyping({
           playerId: humanPlayer.id,
           conversationId: conversation.id,
@@ -50,12 +47,11 @@ export function MessageInput({
       return;
     }
 
-    // Send the current message.
     e.preventDefault();
     if (!inputRef.current) {
       return;
     }
-    const text = inputRef.current.innerText;
+    const text = inputRef.current.innerText.trim();
     inputRef.current.innerText = '';
     if (!text) {
       return;
@@ -85,7 +81,7 @@ export function MessageInput({
           contentEditable
           style={{ outline: 'none' }}
           tabIndex={0}
-          placeholder="Type here"
+          placeholder="输入你的问题..."
           onKeyDown={(e) => onKeyDown(e)}
         />
       </div>

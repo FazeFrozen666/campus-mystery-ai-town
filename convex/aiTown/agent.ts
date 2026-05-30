@@ -3,25 +3,13 @@ import { GameId, parseGameId } from './ids';
 import { agentId, conversationId, playerId } from './ids';
 import { serializedPlayer } from './player';
 import { Game } from './game';
-import {
-  ACTION_TIMEOUT,
-  AWKWARD_CONVERSATION_TIMEOUT,
-  CONVERSATION_COOLDOWN,
-  CONVERSATION_DISTANCE,
-  INVITE_ACCEPT_PROBABILITY,
-  INVITE_TIMEOUT,
-  MAX_CONVERSATION_DURATION,
-  MAX_CONVERSATION_MESSAGES,
-  MESSAGE_COOLDOWN,
-  MIDPOINT_THRESHOLD,
-  PLAYER_CONVERSATION_COOLDOWN,
-} from '../constants';
+import { ACTION_TIMEOUT, PLAYER_CONVERSATION_COOLDOWN } from '../constants';
 import { FunctionArgs } from 'convex/server';
 import { MutationCtx, internalMutation, internalQuery } from '../_generated/server';
 import { distance } from '../util/geometry';
 import { internal } from '../_generated/api';
-import { movePlayer } from './movement';
 import { insertInput } from './insertInput';
+import { stopPlayer } from './movement';
 
 export class Agent {
   id: GameId<'agents'>;
@@ -54,6 +42,9 @@ export class Agent {
     if (!player) {
       throw new Error(`Invalid player ID ${this.playerId}`);
     }
+    if (player.pathfinding) {
+      stopPlayer(player);
+    }
     if (this.inProgressOperation) {
       if (now < this.inProgressOperation.started + ACTION_TIMEOUT) {
         // Wait on the operation to finish.
@@ -65,8 +56,6 @@ export class Agent {
     const conversation = game.world.playerConversation(player);
     const member = conversation?.participants.get(player.id);
 
-    const recentlyAttemptedInvite =
-      this.lastInviteAttempt && now < this.lastInviteAttempt + CONVERSATION_COOLDOWN;
     const doingActivity = player.activity && player.activity.until > now;
     if (doingActivity && (conversation || player.pathfinding)) {
       player.activity!.until = now;
@@ -75,7 +64,7 @@ export class Agent {
     // If we aren't doing an activity or moving, do something.
     // If we have been wandering but haven't thought about something to do for
     // a while, do something.
-    if (!conversation && !doingActivity && (!player.pathfinding || !recentlyAttemptedInvite)) {
+    if (!conversation && !doingActivity) {
       this.startOperation(game, now, 'agentDoSomething', {
         worldId: game.worldId,
         player: player.serialize(),
@@ -104,134 +93,8 @@ export class Agent {
       return;
     }
     if (conversation && member) {
-      const [otherPlayerId, otherMember] = [...conversation.participants.entries()].find(
-        ([id]) => id !== player.id,
-      )!;
-      const otherPlayer = game.world.players.get(otherPlayerId)!;
-      if (member.status.kind === 'invited') {
-        // Accept a conversation with another agent with some probability and with
-        // a human unconditionally.
-        if (otherPlayer.human || Math.random() < INVITE_ACCEPT_PROBABILITY) {
-          console.log(`Agent ${player.id} accepting invite from ${otherPlayer.id}`);
-          conversation.acceptInvite(game, player);
-          // Stop moving so we can start walking towards the other player.
-          if (player.pathfinding) {
-            delete player.pathfinding;
-          }
-        } else {
-          console.log(`Agent ${player.id} rejecting invite from ${otherPlayer.id}`);
-          conversation.rejectInvite(game, now, player);
-        }
-        return;
-      }
-      if (member.status.kind === 'walkingOver') {
-        // Leave a conversation if we've been waiting for too long.
-        if (member.invited + INVITE_TIMEOUT < now) {
-          console.log(`Giving up on invite to ${otherPlayer.id}`);
-          conversation.leave(game, now, player);
-          return;
-        }
-
-        // Don't keep moving around if we're near enough.
-        const playerDistance = distance(player.position, otherPlayer.position);
-        if (playerDistance < CONVERSATION_DISTANCE) {
-          return;
-        }
-
-        // Keep moving towards the other player.
-        // If we're close enough to the player, just walk to them directly.
-        if (!player.pathfinding) {
-          let destination;
-          if (playerDistance < MIDPOINT_THRESHOLD) {
-            destination = {
-              x: Math.floor(otherPlayer.position.x),
-              y: Math.floor(otherPlayer.position.y),
-            };
-          } else {
-            destination = {
-              x: Math.floor((player.position.x + otherPlayer.position.x) / 2),
-              y: Math.floor((player.position.y + otherPlayer.position.y) / 2),
-            };
-          }
-          console.log(`Agent ${player.id} walking towards ${otherPlayer.id}...`, destination);
-          movePlayer(game, now, player, destination);
-        }
-        return;
-      }
-      if (member.status.kind === 'participating') {
-        const started = member.status.started;
-        if (conversation.isTyping && conversation.isTyping.playerId !== player.id) {
-          // Wait for the other player to finish typing.
-          return;
-        }
-        if (!conversation.lastMessage) {
-          const isInitiator = conversation.creator === player.id;
-          const awkwardDeadline = started + AWKWARD_CONVERSATION_TIMEOUT;
-          // Send the first message if we're the initiator or if we've been waiting for too long.
-          if (isInitiator || awkwardDeadline < now) {
-            // Grab the lock on the conversation and send a "start" message.
-            console.log(`${player.id} initiating conversation with ${otherPlayer.id}.`);
-            const messageUuid = crypto.randomUUID();
-            conversation.setIsTyping(now, player, messageUuid);
-            this.startOperation(game, now, 'agentGenerateMessage', {
-              worldId: game.worldId,
-              playerId: player.id,
-              agentId: this.id,
-              conversationId: conversation.id,
-              otherPlayerId: otherPlayer.id,
-              messageUuid,
-              type: 'start',
-            });
-            return;
-          } else {
-            // Wait on the other player to say something up to the awkward deadline.
-            return;
-          }
-        }
-        // See if the conversation has been going on too long and decide to leave.
-        const tooLongDeadline = started + MAX_CONVERSATION_DURATION;
-        if (tooLongDeadline < now || conversation.numMessages > MAX_CONVERSATION_MESSAGES) {
-          console.log(`${player.id} leaving conversation with ${otherPlayer.id}.`);
-          const messageUuid = crypto.randomUUID();
-          conversation.setIsTyping(now, player, messageUuid);
-          this.startOperation(game, now, 'agentGenerateMessage', {
-            worldId: game.worldId,
-            playerId: player.id,
-            agentId: this.id,
-            conversationId: conversation.id,
-            otherPlayerId: otherPlayer.id,
-            messageUuid,
-            type: 'leave',
-          });
-          return;
-        }
-        // Wait for the awkward deadline if we sent the last message.
-        if (conversation.lastMessage.author === player.id) {
-          const awkwardDeadline = conversation.lastMessage.timestamp + AWKWARD_CONVERSATION_TIMEOUT;
-          if (now < awkwardDeadline) {
-            return;
-          }
-        }
-        // Wait for a cooldown after the last message to simulate "reading" the message.
-        const messageCooldown = conversation.lastMessage.timestamp + MESSAGE_COOLDOWN;
-        if (now < messageCooldown) {
-          return;
-        }
-        // Grab the lock and send a message!
-        console.log(`${player.id} continuing conversation with ${otherPlayer.id}.`);
-        const messageUuid = crypto.randomUUID();
-        conversation.setIsTyping(now, player, messageUuid);
-        this.startOperation(game, now, 'agentGenerateMessage', {
-          worldId: game.worldId,
-          playerId: player.id,
-          agentId: this.id,
-          conversationId: conversation.id,
-          otherPlayerId: otherPlayer.id,
-          messageUuid,
-          type: 'continue',
-        });
-        return;
-      }
+      conversation.leave(game, now, player);
+      return;
     }
   }
 
